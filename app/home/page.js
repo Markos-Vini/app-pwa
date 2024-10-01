@@ -2,12 +2,12 @@
 
 import PrivateRoute from '@/components/PrivateRoute';
 import { useState, useEffect } from 'react';
-import { format, parseISO, setDate } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { addTaskToFirestore, AnalyticsInit, getTasksFromFirestore } from '../../public/utils/firebase';
 import { addTask, getTasks } from '../../public/utils/indexedDb';
 
 const requestNotificationPermission = () => {
-  if (Notification.permission === 'default') {
+  if (typeof window !== 'undefined' && Notification.permission === 'default') {
     Notification.requestPermission().then(permission => {
       if (permission === 'granted') {
         sendNotification('Notificações ativadas', 'Agora você receberá notificações.');
@@ -17,7 +17,7 @@ const requestNotificationPermission = () => {
 };
 
 const sendNotification = (title, body) => {
-  if (Notification.permission === 'granted') {
+  if (typeof window !== 'undefined' && Notification.permission === 'granted') {
     new Notification(title, { body });
   }
 };
@@ -27,21 +27,21 @@ export default function Home() {
   const [title, setTitle] = useState('');
   const [dateTime, setDateTime] = useState('');
   const [completed, setCompleted] = useState(false);
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [isOffline, setIsOffline] = useState(false);
   const today = format(new Date(), 'yyyy-MM-dd');
 
   const loadTasks = async () => {
     try {
       const tasksFromDB = await getTasks(); 
 
-      if (navigator.onLine) {
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
         const tasksFromFirestore = await getTasksFromFirestore(); 
 
         const tasksMap = new Map();
         tasksFromDB.forEach(task => tasksMap.set(task.id, task));
         tasksFromFirestore.forEach(task => {
           const exists = tasksMap.has(task.id);
-          if(!exists){
+          if (!exists) {
             tasksMap.set(task.id, task);
           }
         });
@@ -51,7 +51,7 @@ export default function Home() {
         await Promise.all(
           mergedTasks.map(async (task) => {
             try {
-              if(!task.synced){
+              if (!task.synced) {
                 await addTaskToFirestore(task);
                 task.synced = true;
               }
@@ -79,14 +79,14 @@ export default function Home() {
       title, 
       date: new Date(dateTime).toISOString(), 
       completed,
-      synced: navigator.onLine,
+      synced: typeof navigator !== 'undefined' && navigator.onLine,
     };
 
     try {
-      if(navigator.onLine){
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
         const tasksFromFirestore = await getTasksFromFirestore();
-        const exists = tasksFromFirestore.some(task => task.title  === newTask.title && task.date === newTask.date && task.completed === newTask.completed);
-        if(!exists){
+        const exists = tasksFromFirestore.some(task => task.title === newTask.title && task.date === newTask.date && task.completed === newTask.completed);
+        if (!exists) {
           await addTaskToFirestore(newTask);
         }
       }
@@ -118,60 +118,57 @@ export default function Home() {
     Object.keys(grouped).forEach(eachDate => {
       grouped[eachDate].sort((a, b) => {
         return new Date(a.date) - new Date(b.date);
+      });
     });
-  });
 
-  return grouped;
-};
+    return grouped;
+  };
 
   const groupedTasks = groupByDate(tasks);
 
   useEffect(() => {
-    requestNotificationPermission();
-    loadTasks();
+    if (typeof window !== 'undefined') {
+      requestNotificationPermission();
+      loadTasks();
 
-    const handleOfflineStatus = () => {
-      if (!navigator.onLine) {
-        setIsOffline(true);
-        sendNotification('Você está offline', 'As tarefas adicionadas serão sincronizadas quando a conexão for restaurada.');
-      } else {
-        setIsOffline(false);
-        sendNotification('Você está online', 'A conexão foi restabelecida.');
-        loadTasks(); 
-      }
-    };
+      const handleOfflineStatus = () => {
+        if (!navigator.onLine) {
+          setIsOffline(true);
+          sendNotification('Você está offline', 'As tarefas adicionadas serão sincronizadas quando a conexão for restaurada.');
+        } else {
+          setIsOffline(false);
+          sendNotification('Você está online', 'A conexão foi restabelecida.');
+          loadTasks(); 
+        }
+      };
 
-    window.addEventListener('online', handleOfflineStatus);
-    window.addEventListener('offline', handleOfflineStatus);
+      window.addEventListener('online', handleOfflineStatus);
+      window.addEventListener('offline', handleOfflineStatus);
 
+      const loadAnalytics = async () => {
+        await AnalyticsInit();
+      };
 
-    const loadAnalytics = async () => {
-      await AnalyticsInit();
-    }
-
-    if(typeof window !== 'undefined'){
       loadAnalytics();
+
+      return () => {
+        window.removeEventListener('online', handleOfflineStatus);
+        window.removeEventListener('offline', handleOfflineStatus);
+      };
     }
-
-    return () => {
-      window.removeEventListener('online', handleOfflineStatus);
-      window.removeEventListener('offline', handleOfflineStatus);
-    };
   }, []);
-
-
 
   return (
     <PrivateRoute>
       <div className="container mx-auto min-h-screen p-6 bg-gray-100">
         <h1 className="text-4xl font-semibold mb-6 text-center">Minhas Tarefas</h1>
-  
+
         {isOffline && (
           <div className='bg-red-600 text-white p-4 rounded mb-6 text-center'>
             Você está desconectado. As tarefas serão sincronizadas quando a conexão for restabelecida!
           </div>
         )}
-  
+
         <form onSubmit={handleAddTask} className="mb-6 bg-white p-4 rounded shadow-md">
           <div className="flex flex-col md:flex-row md:space-x-4">
             <input
@@ -203,7 +200,7 @@ export default function Home() {
             </button>
           </div>
         </form>
-  
+
         <h2 className="text-3xl mb-4 text-gray-800">Tarefas Pendentes</h2>
         {Object.keys(groupedTasks).filter(date => date !== 'passadas').map((date) => (
           <div key={date} className="mb-6">
@@ -227,7 +224,7 @@ export default function Home() {
             </ul>
           </div>
         ))}
-  
+
         <h2 className="text-3xl mb-4 text-gray-800">Tarefas Anteriores</h2>
         <ul>
           {groupedTasks['passadas']?.map((task) => (
@@ -250,6 +247,4 @@ export default function Home() {
       </div>
     </PrivateRoute>
   );
-  
-  
 }
